@@ -188,14 +188,71 @@ vim /etc/sysctl.conf
 sysctl -p
 
 
-5.启动 sh ./bin/elasticsearch
+5.启动 ./bin/elasticsearch
 后台启动 加上 -d 或 &
+带参数启动
+./bin/elasticsearch -Ecluster.name=xx -Ehttp.port=8200 -Epath.date=/xxx/xx
 
 6. 访问http://106.14.7.29:9200 即可看到信息
 
 7. 停止   
 JPS 看进程号  
 kill  -9  进程号  或 kill -SIGTERM 进程号
+
+
+#### Elasticsearch分布式配置
+* vim config/elasticsearch.yml 追加
+>
+    cluster.name: zx
+    node.name: master 
+    node.master: true
+    network.host: 0.0.0.0 这句上面为了外网访问已经加了,就别加了
+>
+
+* 将其复制出一份
+>
+    创建新的目录
+    mkdir ./es_slave 
+    拷贝过去
+    cp ./elasticsearch-6.0.0.tar.gz ./es_slave/
+    解压
+    tar -zxvf ./elasticsearch-6.0.0.tar.gz 
+    修改文件
+    vim ./config/elasticsearch.yml
+    追加
+    cluster.name: zx
+    node.name: slave1 
+    network.host: 0.0.0.0
+    discovery.zen.ping.unicast.hosts: [127.0.0.1] # 该ip就是主节点的ip
+    http.port: 9201       # 因为是在一台机器上配置,所以需要修改端口
+    
+    注意此处需要给新的用户权限,启动该节点
+>
+
+* 这样应该就可以了.但是我未验证,因为...服务器内存不足了
+* 已经成功,内存不足,就将config/jvm.options中的jvm内存改小即可
+
+#### 配置说明
+* 配置文件位于config目录中
+    * elasticsearch.yml es相关配置
+    >
+        cluster.name 集群名字
+        node.name 节点名
+        networ.host/http.port 网络地址和端口,用于http和transport服务使用
+        path.data 数据存储地址
+        path.log 日志存储地址
+    >
+    * jvm.options jvm相关配置
+    >
+        基本只需要修改其最大内存和最小内存即可
+    >
+    * log4j2.properties 日志相关配置
+* Development和Production模式说明
+    * 以transport的地址是否会绑定在localhost为判断标准network.host
+    * Development模式会在启动时以warring方式提示配置检查异常
+    * Production模式会以error方式提示,并退出
+
+* 在启动时可以使用./bin/elasticsearch -Ehttp.port=8200 -Epath.data=node2  这样的方式修改配置
 
 #### HEAD插件安装-提供了一个elasticsearch的管理界面
 * url: https://github.com/mobz/elasticsearch-head
@@ -253,36 +310,6 @@ kill  -9  进程号  或 kill -SIGTERM 进程号
     ctrl + c 杀死即可
 >
 
-#### Elasticsearch分布式配置
-* vim config/elasticsearch.yml 追加
->
-    cluster.name: zx
-    node.name: master 
-    node.master: true
-    network.host: 0.0.0.0 这句上面为了外网访问已经加了,就别加了
->
-
-* 将其复制出一份
->
-    创建新的目录
-    mkdir ./es_slave 
-    拷贝过去
-    cp ./elasticsearch-6.0.0.tar.gz ./es_slave/
-    解压
-    tar -zxvf ./elasticsearch-6.0.0.tar.gz 
-    修改文件
-    vim ./config/elasticsearch.yml
-    追加
-    cluster.name: zx
-    node.name: slave1 
-    network.host: 0.0.0.0
-    discovery.zen.ping.unicast.hosts: [127.0.0.1] # 该ip就是主节点的ip
-    http.port: 9201       # 因为是在一台机器上配置,所以需要修改端口
-    
-    注意此处需要给新的用户权限,启动该节点
->
-
-* 这样应该就可以了.但是我未验证,因为...服务器内存不足了
 
 #### 基础概念
 * 集群主从.  
@@ -809,3 +836,344 @@ GET/POST/POST/DELETE
     -XX:-OmitStackTraceInFastThrow
 
 >
+
+
+#### Kibana入门
+1. 下载 注意版本和es一致
+> wget https://artifacts.elastic.co/downloads/kibana/kibana-6.0.1-linux-x86_64.tar.gz
+2. 解压
+> tar -zxvf kibana-6.0.1-linux-x86_64.tar.gz
+3. 修改config/kibana.yml 
+>
+    elasticsearch.url 设置自己的es地址,默认是本机的9200端口
+    server.host 地址,如果需要外网访问,需要改为 "0.0.0.0"
+    server.port 端口
+>
+4. 启动  
+./bin/kibana  
+后台启动  
+./bin/kibana & 
+带参数启动 指定了连接的es地址 和 自身启动的端口号
+./bin/kibana -e http://127.0.0.1:8200 -p 8601
+
+5. 访问 http://106.14.7.29:5601 进入  
+在该页面的dev tools 中可以对连接的es进行curd
+
+6. 关闭
+jobs  查看所有任务
+fg <id> 将指定id任务移动到前台
+ctrl + c 关闭它
+
+#### Beats入门-轻量级数据传输者-该框架下不同的数据类型的框架需要单独安装
+* Metricbeat 度量数据
+* Winlogbeat Windows数据
+* Heartbeat 健康检查
+* Packetbeat 网络数据
+    * 实时抓取网络包
+    * 自动解析应用层协议  
+        * ICMP(V6 AND V4)
+        * DNS
+        * HTTP
+        * MySql
+        * Redis
+    * Wireshark
+    
+    * 解析elasticsearch http请求
+    >
+        一些配置.
+        packetbeat.interfaces.device:any   #指定网卡,any指所有网卡
+        packetbeat.protocols.http: 
+            ports:[9200]  # 抓取http协议9200端口
+            send_request: true   # 抓取时还抓取http协议的body
+            include_body_for:["application/json","x-www-form-urlencoded"]  # 抓取的body类型
+        output.console:   # 配置在控制台输出
+            pretty: true
+            
+        运行,指定了上面这些配置的文件es.yml ,-strict.perms=false表示不检查权限
+        ./packetbeat -e -c es.yml -strict.perms=false
+        
+        下载
+        wget https://artifacts.elastic.co/downloads/beats/packetbeat/packetbeat-6.0.1-linux-x86_64.tar.gz
+        解压
+        tar -zxvf packetbeat-6.0.1-linux-x86_64.tar.gz
+    >
+    
+* Filebeat 日志文件
+    * 处理流程
+    >
+        输入 Input
+        处理 Filter
+        输出 Output
+        每个prospector(观察者)对应若干日志文件,如果日志有了变化,harvestor(收集器)处理该变化,将数据发送给es等
+    >
+    
+    * Input配置 yaml语法
+    >
+        filebeat.prospectors
+        如下配置了两个Prospector,每个Prospector对应若干个日志文件
+        日志类型有log和stdin(标准输入)
+        
+        -input_type:log
+        paths:
+            -/var/log/xx/xxx-*.log
+            
+        -input_type:log
+        paths:
+            -/var/log/xxxxx/*.log
+            -/var/log/*.log
+    >
+    
+    * Filebeat Output配置
+    >
+        支持输出到Console/Elasticsearch/Logstash/Kafka/Redis/File
+        
+        如下是输出到es
+        ouput.elasticsearch:
+            hosts:["http://127.0.0.1:9200"]
+            username:"admin"
+            password:"xxx"
+        输出到console
+        output.console:
+            pretty.true
+    >
+    
+    *Filebeat Filter配置
+    >
+        Input时处理
+        Include_lines 根据条件读取这行
+        exclude_lines 根据条件不读取这行
+        exclude_files 根据条件是否读取该文件
+        
+        Output前处理-Processor
+        drop_event 如果读取的数据满足条件,直接丢弃
+        drop_fields 丢弃某个字段
+        Decode_json_fields 对符合条件的数据进行json解析
+        Inclue_fields 取某些字段
+        
+        丢弃符合该正则的数据
+        processors:
+            -drop_event:
+                when:
+                    regexp:
+                        message:"^XXX:"
+                        
+        将数据的xx字段进行json解析
+        processors:
+            -decode_josn_fields:
+                fields:["xx"]
+    >
+    
+    * Elasticsearch Ingest Node
+        * 新增的node类型
+        * 在数据写入es前对数据进行处理转换
+        * pipeline api 
+    
+    * Filebeat Module简介
+        * 对社区中常见需求进行封装增加易用性
+            * 例如nginx/apache/mysql日志等 
+            * 封装内容
+                * filebeat.yml 配置
+                * ingest node pipeline 配置
+                * Kinbana dashboard 配置
+                
+    * Filebeat收集nginx log
+        * 通过stdin收集日志
+        * 通过console输出结果
+        * Filebeat安装
+            1. 下载
+            > wget https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-6.0.1-linux-x86_64.tar.gz
+            2. 解压
+            > tar -zxvf filebeat-6.0.1-linux-x86_64.tar.gz
+        * 我在其根目录新建了一个tmp文件夹,放入了nginx的日志
+        * 并在根目录放了nginx.yml,配置如下
+        >
+            filebeat.prospectors:
+                - input_type: stdin
+            output.console:
+                pretty: true
+        >
+        * 运行如下命令,将日志输入filebeat
+        表示从该日志文件中取2行,(注意中间| 分隔了两个命令)然后使用filebeat命令 -e -c ,然后指定配置文件即可
+        > tail -n 2 /zx/tmp/nginx_logs  |  ./filebeat -e -c nginx.yml 
+        * 日志就被输出回了linux的控制台上
+        
+        
+#### Logstash入门-数据传输者
+* 处理流程
+    * Input 输入
+        * 支持file/redis/beats/kafka
+    * Filter 过滤
+        * grok 将非结构化数据转为结构化数据
+        * mutate 对结构化数据进行curd
+        * drop
+        * date
+    * Output
+        * 支持stdout(标准输出)/es/redis/kafka
+* 配置    
+    * Input输入配置
+    > 
+        配置输入为文件,并指定路径
+        input{file{path=> "/tmp/abc.log"}}    
+    >
+    * Output输出配置
+    >
+        配置输出为标准输出,用的编码是rubydebug
+        output{stdout{codec => rubydebug}}
+    >
+    * Filter配置     
+        * grok
+            * 基于正则表达式提供了丰富可重用的pattern,基于此可将非结构化数据结构化处理
+            ![](1.png)
+            * 如图所示,将该数据转为了结构化数据.IP/WORD/NUMBER等是类型.后面是字段名
+        * Date
+            * 将字符串类型的时间字段转为时间戳
+        * Mutate
+            * 进行CURD等字段相关处理
+* 收集nginx log
+    * 安装
+    >
+        下载
+        wget https://artifacts.elastic.co/downloads/logstash/logstash-6.0.1.tar.gz
+        解压
+        tar -zxvf logstash-6.0.1.tar.gz
+        准备好配置文件.conf
+            input {
+              stdin { }
+            }
+            
+            filter {
+              grok {
+                match => {
+                  "message" => '%{IPORHOST:remote_ip} - %{DATA:user_name} \[%{HTTPDATE:time}\] "%{WORD:request_action} %{DATA:request} HTTP/%{NUMBER:http_version}" %{NUMBER:response} %{NUMBER:bytes} "%{DATA:referrer}" "%{DATA:agent}"'
+                }
+              }
+            
+              date {
+                match => [ "time", "dd/MMM/YYYY:HH:mm:ss Z" ]
+                locale => en
+              }
+            
+              geoip {
+                source => "remote_ip"
+                target => "geoip"
+              }
+            
+              useragent {
+                source => "agent"
+                target => "user_agent"
+              }
+            }
+            
+            output {
+                stdout {
+                 codec => rubydebug 
+                 }
+            }
+            
+        运行,即可
+        tail -n 2 /zx/tmp/nginx_logs | ./bin/logstash -f nginx_logstash.conf 
+        
+        停止
+        ps -ef | gerp logstash
+        kill -9 <进程号>
+        
+        如果提示内存不足,可修改config/jvm.option 中的-Xms 和 -Xmx参数
+    >
+
+* 微实战-分析es查询语句
+    * 收集es集群的查询语句
+    * 分析查询语句的常用语句/响应时长等
+* 方案
+    * Packetbeat + Logstash 完成数据收集工作
+    * Kibana + Elasticsearch 完成数据分析工作
+    
+* 进程
+    * Production Cluster 生产者集群
+        * es 9200
+        * kibana 5601
+    * monitoring Cluster 监控集群
+        * es 8200
+        * Kibana 8601
+
+* Logstash配置
+![](2.png)
+
+* Packetbeat配置  
+注意网卡可替换为any,表示监听所有网卡
+![](3.png)
+
+* 运行
+    * 运行监听集群的es 8200.指定一个path.data路径
+    > ./bin/elasticsearch -Epath.data=/zx/tmp/data & 
+    * 运行监听集群的kibana 8601,并连接8200的es
+    >  ./kibana-6.0.1-linux-x86_64/bin/kibana -e http://127.0.0.1:8200 -p 8601 &
+    * 运行生产集群的es 9200 .指定一个path.data
+    >  elasticsearch-6.0.0/bin/elasticsearch -Epath.data=/zx/tmp/data1 &
+    * 运行生产集群的kibana 5601,连接9200的es
+    > kibana-6.0.1-linux-x86_64/bin/kibana -e http://127.0.0.1:9200 -p 5601 &
+    
+    * 准备logstash运行配置文件search.conf
+    >
+        input {
+            beats {
+                port => 5044
+            }
+        }
+        filter {
+            if "search" in [request]{
+                grok {
+                    match => { "request" => ".*\n\{(?<query_body>.*)"} 
+                }
+                grok {
+                    match => { "path" => "\/(?<index>.*)\/_search"}     
+                }
+             if [index] {
+              } else {
+                    mutate {
+                      add_field  => { "index" => "All" }
+                }
+              }
+        
+              mutate {
+                      update  => { "query_body" => "{%{query_body}"}}
+              }
+        
+          #    mutate {
+          #        remove_field => [ "[http][response][body]" ]
+          #    }
+        }
+        
+        output {
+          #stdout{codec=>rubydebug}
+        
+          if "search" in [request]{
+                elasticsearch {
+                hosts => "127.0.0.1:8200"
+                }
+           }
+        }
+    >
+    * 启动,此时该进程会监听5044端口的输入
+    > ./bin/logstash -f search.conf
+    
+    * 准备packetbeat的启动配置文件search.yml
+    >
+        packetbeat.interfaces.device: any
+        
+        packetbeat.protocols.http:
+          ports: [9200]
+          send_request: true
+          include_body_for: ["application/json", "x-www-form-urlencoded"]
+        
+        output.console:
+            pretty: true
+        
+        output.logstash:
+            hosts: ["127.0.0.1:5044"]
+    >
+    注意,6.X版本中不再支持多个output,如果需要多个output,可以启动多个实例...
+    * 启动
+    > ./packetbeat -e -c search.yml 
+    
+* 此时,在生产集群产生的所有查询日志,都可以在监听集群的kibana中查看到.
+* 然后就是根据数据生成图表了..鼠标点点点就可以生成了.我只能说,,我草.6飞起
